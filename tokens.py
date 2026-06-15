@@ -294,13 +294,15 @@ def show_inference_images(images, infos):
     cols = min(n, 3)
     rows = (n + cols - 1) // cols
 
-    fig, axes = plt.subplots(rows, cols, figsize=(4 * cols, 4 * rows))
+    fig, axes = plt.subplots(rows, cols, figsize=(4 * cols, 4 * rows), dpi=150)
     if rows * cols == 1:
         axes = np.array([axes])
     axes = np.array(axes).reshape(-1)
 
     for ax, img_tensor, info in zip(axes, images, infos):
-        ax.imshow(denormalize_image(img_tensor))
+        # "lanczos" resampling smooths the upscaled 96x96 image so it renders
+        # cleanly instead of as blocky nearest-neighbour pixels.
+        ax.imshow(denormalize_image(img_tensor), interpolation="lanczos")
         colour = "green" if info["correct"] else "red"
         ax.set_title(
             f"true: {info['true']}\n"
