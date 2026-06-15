@@ -28,14 +28,16 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 CACHE_DIR = SCRIPT_DIR / "cache"
 DATA_DIR = CACHE_DIR / "data"
 MODEL_DIR = CACHE_DIR / "models"
-MODEL_PATH = MODEL_DIR / "vit_cifar10.pt"
+MODEL_PATH = MODEL_DIR / "vit_stl10.pt"
 
 # image / patch-tokenizer settings
-IMG_SIZE = 32
-PATCH_SIZE = 4
+# STL-10 ships 96x96 images (9x the linear resolution of CIFAR-10's 32x32),
+# so the displayed samples are sharp instead of blocky/pixelated.
+IMG_SIZE = 96
+PATCH_SIZE = 12
 CHANNELS = 3
 NUM_PATCHES = (IMG_SIZE // PATCH_SIZE) ** 2  # 64
-TOKEN_DIM = PATCH_SIZE * PATCH_SIZE * CHANNELS  # 48
+TOKEN_DIM = PATCH_SIZE * PATCH_SIZE * CHANNELS  # 432
 
 # vision-transformer settings (trained from scratch)
 NUM_CLASSES = 10
@@ -60,14 +62,14 @@ RETRAIN = False
 # Overridden by the --numgpus CLI flag if provided.
 NUM_GPUS = 1
 
-# Normalisation constants used when loading CIFAR-10.  Kept in module scope
+# Normalisation constants used when loading STL-10.  Kept in module scope
 # so we can de-normalise images for display.
 NORM_MEAN = (0.5, 0.5, 0.5)
 NORM_STD = (0.5, 0.5, 0.5)
 
-CIFAR10_CLASSES = [
-    "airplane", "automobile", "bird", "cat", "deer",
-    "dog", "frog", "horse", "ship", "truck",
+STL10_CLASSES = [
+    "airplane", "bird", "car", "cat", "deer",
+    "dog", "horse", "monkey", "ship", "truck",
 ]
 
 np.random.seed(SEED)
@@ -110,7 +112,7 @@ class TokenDataset(Dataset):
 # ── vision transformer (from scratch, no pretrained weights) ─
 
 class VisionTransformer(nn.Module):
-    """Small ViT trained from scratch on CIFAR-10 patch tokens."""
+    """Small ViT trained from scratch on STL-10 patch tokens."""
 
     def __init__(self, token_dim, num_patches, embed_dim, num_heads,
                  num_layers, ffn_dim, num_classes, dropout):
@@ -208,22 +210,22 @@ def evaluate(model, loader, device):
 # ── caching: dataset + model ─────────────────────────────────
 
 def get_or_download_dataset():
-    """Use cached CIFAR-10 if it exists, otherwise download and cache it."""
-    extracted_dir = DATA_DIR / "cifar-10-batches-py"
+    """Use cached STL-10 if it exists, otherwise download and cache it."""
+    extracted_dir = DATA_DIR / "stl10_binary"
 
     if extracted_dir.exists():
         print(f"[CACHE] Dataset found at {DATA_DIR} — using cached copy.")
         download = False
     else:
-        print(f"[DOWNLOAD] CIFAR-10 not cached — downloading to {DATA_DIR}...")
+        print(f"[DOWNLOAD] STL-10 not cached — downloading to {DATA_DIR}...")
         download = True
 
     transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize(NORM_MEAN, NORM_STD),
     ])
-    return datasets.CIFAR10(
-        root=str(DATA_DIR), train=True, download=download, transform=transform,
+    return datasets.STL10(
+        root=str(DATA_DIR), split="train", download=download, transform=transform,
     )
 
 
@@ -310,7 +312,7 @@ def show_inference_images(images, infos):
     for ax in axes[len(infos):]:
         ax.axis("off")
 
-    fig.suptitle("Sample inferences on tokenized CIFAR-10 test set", fontsize=12)
+    fig.suptitle("Sample inferences on tokenized STL-10 test set", fontsize=12)
     fig.tight_layout()
     plt.show()
 
@@ -319,7 +321,7 @@ def show_inference_images(images, infos):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Vision Transformer (from scratch) trained on tokenized CIFAR-10."
+        description="Vision Transformer (from scratch) trained on tokenized STL-10."
     )
     parser.add_argument(
         "-n", "--num-inferences", type=int, default=DEFAULT_NUM_INFERENCES,
@@ -383,7 +385,7 @@ def main():
 
     # 1. dataset (cached on disk)
     dataset = get_or_download_dataset()
-    print(f"Loaded CIFAR-10: {len(dataset)} images, {NUM_CLASSES} classes\n")
+    print(f"Loaded STL-10: {len(dataset)} images, {NUM_CLASSES} classes\n")
 
     # 2. tokenize every image with the patch tokenizer
     print("Tokenizing images into patch tokens...")
@@ -463,14 +465,14 @@ def main():
     print(f"  F1 Score  : {f1:.4f}  (weighted)")
     print()
     print("  Confusion Matrix (rows=actual, cols=predicted):")
-    header = "         " + "".join(f"{c[:5]:>6}" for c in CIFAR10_CLASSES)
+    header = "         " + "".join(f"{c[:5]:>6}" for c in STL10_CLASSES)
     print(header)
     for i, row in enumerate(cm):
-        print(f"  {CIFAR10_CLASSES[i][:5]:>6}" + "".join(f"{v:>6}" for v in row))
+        print(f"  {STL10_CLASSES[i][:5]:>6}" + "".join(f"{v:>6}" for v in row))
     print()
     print("  Classification Report:")
     print(classification_report(
-        test_true, test_preds, target_names=CIFAR10_CLASSES, zero_division=0,
+        test_true, test_preds, target_names=STL10_CLASSES, zero_division=0,
     ))
 
     # 7. show N example inferences (default 3)
@@ -501,18 +503,18 @@ def main():
             mark = "OK" if correct else "MISS"
 
             top3 = np.argsort(probs)[::-1][:3]
-            top_str = ", ".join(f"{CIFAR10_CLASSES[j]} {probs[j]:.2%}" for j in top3)
+            top_str = ", ".join(f"{STL10_CLASSES[j]} {probs[j]:.2%}" for j in top3)
 
             print(f"\n  [{i}/{n}] test index {idx}  [{mark}]")
             print(f"      Token shape : {tuple(test_tokens[idx].shape)}  (patches x patch_features)")
-            print(f"      True label  : {CIFAR10_CLASSES[true_lbl]}")
-            print(f"      Predicted   : {CIFAR10_CLASSES[pred_lbl]}  (confidence {confidence:.2%})")
+            print(f"      True label  : {STL10_CLASSES[true_lbl]}")
+            print(f"      Predicted   : {STL10_CLASSES[pred_lbl]}  (confidence {confidence:.2%})")
             print(f"      Top-3       : {top_str}")
 
             display_images.append(images[test_idx[idx]])
             display_infos.append({
-                "true": CIFAR10_CLASSES[true_lbl],
-                "pred": CIFAR10_CLASSES[pred_lbl],
+                "true": STL10_CLASSES[true_lbl],
+                "pred": STL10_CLASSES[pred_lbl],
                 "confidence": confidence,
                 "correct": correct,
             })
